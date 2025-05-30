@@ -181,6 +181,11 @@ Resources:
 
                   # Rules for Amazon MQ
                   - 'mq:CreateTags'
+                  
+                  # Rules for ElastiCache
+                  - 'elasticache:DescribeReplicationGroups'
+                  - 'elasticache:DescribeCacheClusters'
+                  - 'elasticache:AddTagsToResource'
 
                   # Rules for Resource Group Tag Editor
                   - 'tag:getResources'
@@ -209,6 +214,8 @@ Resources:
                   _region = event['region']
                   ec2ArnTemplate = 'arn:aws:ec2:@region@:@account@:instance/@instanceId@'
                   volumeArnTemplate = 'arn:aws:ec2:@region@:@account@:volume/@volumeId@'
+                  snapshotArnTemplate = 'arn:aws:ec2:@region@:@account@:snapshot/@snapshotId@'
+                  imageArnTemplate = 'arn:aws:ec2:@region@:@account@:image/@imageId@'
                   ec2_resource = boto3.resource('ec2')
                   if event['detail']['eventName'] == 'RunInstances':
                       print("tagging for new EC2...")
@@ -240,6 +247,28 @@ Resources:
                       
                   elif event['detail']['eventName'] == 'CreateTransitGateway':
                       print("tagging for new Transit Gateway...")
+                      
+                  elif event['detail']['eventName'] == 'CreateSnapshot':
+                      print("tagging for new EBS Snapshot...")
+                      _snapshotId = event['detail']['responseElements']['snapshotId']
+                      arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotId@', _snapshotId))
+                  
+                  elif event['detail']['eventName'] == 'CopySnapshot':
+                      print("tagging for copied EBS Snapshot...")
+                      _snapshotId = event['detail']['responseElements']['snapshotId']
+                      arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotId@', _snapshotId))
+                  
+                  elif event['detail']['eventName'] == 'CreateImage':
+                      print("tagging for new EC2 AMI...")
+                      _imageId = event['detail']['responseElements']['imageId']
+                      arnList.append(imageArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@imageId@', _imageId))
+                      
+                      # Also tag snapshots created as part of the AMI
+                      if 'blockDeviceMapping' in event['detail']['responseElements']:
+                          for device in event['detail']['responseElements']['blockDeviceMapping']:
+                              if 'ebs' in device and 'snapshotId' in device['ebs']:
+                                  _snapshotId = device['ebs']['snapshotId']
+                                  arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotId@', _snapshotId))
 
                   return arnList
                   
@@ -427,6 +456,42 @@ Resources:
                       arnList.append(_namespaceArn)
                       return arnList
 
+              def aws_elasticache(event):
+                  arnList = []
+                  _account = event['account']
+                  _region = event['region']
+                  ecArnTemplate = 'arn:aws:elasticache:@region@:@account@:cluster:@ecId@'
+
+                  if event['detail']['eventName'] == 'CreateReplicationGroup' or event['detail']['eventName'] == 'ModifyReplicationGroupShardConfiguration':
+                      print("tagging for new ElastiCache cluster...")
+                      _replicationGroupId = event['detail']['requestParameters']['replicationGroupId']
+                      waiter = boto3.client('elasticache').get_waiter('replication_group_available')
+                      waiter.wait(
+                          ReplicationGroupId = _replicationGroupId,
+                          WaiterConfig={
+                              'Delay': 123,
+                              'MaxAttempts': 123
+                          }
+                      )
+                      _clusters = event['detail']['responseElements']['memberClusters']
+                      for _ec in _clusters:
+                          arnList.append(ecArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@ecId@', _ec))
+
+                  elif event['detail']['eventName'] == 'CreateCacheCluster':
+                      print("tagging for new ElastiCache node...")
+                      _cacheClusterId = event['detail']['responseElements']['cacheClusterId']
+                      waiter = boto3.client('elasticache').get_waiter('cache_cluster_available')
+                      waiter.wait(
+                          CacheClusterId = _cacheClusterId,
+                          WaiterConfig={
+                              'Delay': 123,
+                              'MaxAttempts': 123
+                          }
+                      )
+                      arnList.append(event['detail']['responseElements']['aRN'])
+
+                  return arnList
+                  
               def aws_sagemaker(event):
                   arnList = []
                   if event['detail']['eventName'] == 'CreateNotebookInstance':
@@ -526,11 +591,11 @@ Resources:
       Name: !Ref EventBridgeRuleName
       EventPattern: '{
                       "detail": {
-                        "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com","redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "ecs.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com"],
-                        "eventName": ["RunInstances", "CreateFunction20150331", "CreateBucket", "CreateDBInstance", "CreateTable", "CreateVolume", "CreateLoadBalancer", "CreateMountTarget", "CreateDomain", "CreateQueue", "CreateTopic", "CreateKey", "CreateCluster", "CreateNamespace", "CreateWorkgroup", "CreateNotebookInstance", "CreateProcessingJob", "CreateEndpoint", "CreateDomain", "CreateModel", "CreateLabelingJob", "CreateTrainingJob", "CreateTransformJob", "CreateUserProfile", "CreateWorkteam", "PutMetricAlarm", "CreateLogGroup", "CreateClusterV2", "CreateBroker"]
+                        "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com","redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "ecs.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com", "elasticache.amazonaws.com"],
+                        "eventName": ["RunInstances", "CreateFunction20150331", "CreateBucket", "CreateDBInstance", "CreateTable", "CreateVolume", "CreateLoadBalancer", "CreateMountTarget", "CreateDomain", "CreateQueue", "CreateTopic", "CreateKey", "CreateCluster", "CreateNamespace", "CreateWorkgroup", "CreateNotebookInstance", "CreateProcessingJob", "CreateEndpoint", "CreateDomain", "CreateModel", "CreateLabelingJob", "CreateTrainingJob", "CreateTransformJob", "CreateUserProfile", "CreateWorkteam", "PutMetricAlarm", "CreateLogGroup", "CreateClusterV2", "CreateBroker", "CreateSnapshot", "CopySnapshot", "CreateImage", "CreateReplicationGroup", "CreateCacheCluster", "ModifyReplicationGroupShardConfiguration"]
                       },
                       "detail-type": ["AWS API Call via CloudTrail"],
-                      "source": ["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.ecs", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq"]
+                      "source": ["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.ecs", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq", "aws.elasticache"]
                     }'
       Targets:
         - Arn: !GetAtt LambdaAutoTagging.Arn

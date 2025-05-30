@@ -11,6 +11,8 @@ def aws_ec2(event):
     _region = event['region']
     ec2ArnTemplate = 'arn:aws:ec2:@region@:@account@:instance/@instanceId@'
     volumeArnTemplate = 'arn:aws:ec2:@region@:@account@:volume/@volumeId@'
+    snapshotArnTemplate = 'arn:aws:ec2:@region@:@account@:snapshot/@snapshotId@'
+    imageArnTemplate = 'arn:aws:ec2:@region@:@account@:image/@imageId@'
     ec2_resource = boto3.resource('ec2')
     if event['detail']['eventName'] == 'RunInstances':
         print("tagging for new EC2...")
@@ -42,6 +44,28 @@ def aws_ec2(event):
         
     elif event['detail']['eventName'] == 'CreateTransitGateway':
         print("tagging for new Transit Gateway...")
+    
+    elif event['detail']['eventName'] == 'CreateSnapshot':
+        print("tagging for new EBS Snapshot...")
+        _snapshotId = event['detail']['responseElements']['snapshotId']
+        arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotId@', _snapshotId))
+    
+    elif event['detail']['eventName'] == 'CopySnapshot':
+        print("tagging for copied EBS Snapshot...")
+        _snapshotId = event['detail']['responseElements']['snapshotId']
+        arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotId@', _snapshotId))
+    
+    elif event['detail']['eventName'] == 'CreateImage':
+        print("tagging for new EC2 AMI...")
+        _imageId = event['detail']['responseElements']['imageId']
+        arnList.append(imageArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@imageId@', _imageId))
+        
+        # Also tag snapshots created as part of the AMI
+        if 'blockDeviceMapping' in event['detail']['responseElements']:
+            for device in event['detail']['responseElements']['blockDeviceMapping']:
+                if 'ebs' in device and 'snapshotId' in device['ebs']:
+                    _snapshotId = device['ebs']['snapshotId']
+                    arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotId@', _snapshotId))
 
     return arnList
     
