@@ -476,6 +476,7 @@ Resources:
                       _clusters = event['detail']['responseElements']['memberClusters']
                       for _ec in _clusters:
                           arnList.append(ecArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@ecId@', _ec))
+                      arnList.append(event['detail']['responseElements']['aRN'])
 
                   elif event['detail']['eventName'] == 'CreateCacheCluster':
                       print("tagging for new ElastiCache node...")
