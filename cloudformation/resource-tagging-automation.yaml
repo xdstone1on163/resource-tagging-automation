@@ -21,7 +21,7 @@ Parameters:
   AutomationTags:
     Type: String
     Default: ''
-    Description: 'Sample: {"TagName1": "TagValue1","TagName2": "TagValue2"}'
+    Description: 'Sample: {"map-migrated": "migP4XLG2BXXX","team-name": "abcdefg"}'
 
   LambdaAutoTaggingFunctionName:
     Type: String
