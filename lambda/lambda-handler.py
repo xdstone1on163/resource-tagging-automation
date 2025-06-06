@@ -80,6 +80,12 @@ def aws_elasticloadbalancing(event):
 
 def aws_rds(event):
     arnList = []
+    # Check if this is a DocumentDB event (DocumentDB uses the RDS API)
+    isDocumentDB = False
+    if 'engine' in event['detail']['responseElements'] and event['detail']['responseElements']['engine'] == 'docdb':
+        isDocumentDB = True
+        print("Detected DocumentDB event through RDS API")
+    
     if event['detail']['eventName'] == 'CreateDBInstance':
         print("tagging for new RDS...")
         #db_instance_id = event['detail']['requestParameters']['dBInstanceIdentifier']
@@ -89,6 +95,47 @@ def aws_rds(event):
         #)
         arnList.append(event['detail']['responseElements']['dBInstanceArn'])
         return arnList
+    elif event['detail']['eventName'] == 'CreateDBSnapshot':
+        print("tagging for new RDS snapshot...")
+        arnList.append(event['detail']['responseElements']['dBSnapshotArn'])
+        return arnList
+    elif event['detail']['eventName'] == 'CopyDBSnapshot':
+        print("tagging for copied RDS snapshot...")
+        arnList.append(event['detail']['responseElements']['dBSnapshotArn'])
+        return arnList
+    elif event['detail']['eventName'] == 'CreateDBClusterSnapshot':
+        if isDocumentDB:
+            print("tagging for new DocumentDB cluster snapshot...")
+        else:
+            print("tagging for new RDS cluster snapshot...")
+        
+        # Use proper key name as seen in the event
+        arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
+        return arnList
+    elif event['detail']['eventName'] == 'CopyDBClusterSnapshot':
+        if isDocumentDB:
+            print("tagging for copied DocumentDB cluster snapshot...")
+        else:
+            print("tagging for copied RDS cluster snapshot...")
+        arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
+        return arnList
+    
+    return arnList  # Return empty list if no matching event name
+
+# This function won't be called for DocumentDB since the event source is "aws.rds"
+# Keeping it as a placeholder in case AWS changes the API in the future
+def aws_docdb(event):
+    print("Warning: Direct DocumentDB event received, but DocumentDB events normally route through RDS API")
+    arnList = []
+    if event['detail']['eventName'] == 'CreateDBClusterSnapshot':
+        print("tagging for new DocumentDB cluster snapshot...")
+        arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
+        return arnList
+    elif event['detail']['eventName'] == 'CopyDBClusterSnapshot':
+        print("tagging for copied DocumentDB cluster snapshot...")
+        arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
+        return arnList
+    return arnList
 
 def aws_s3(event):
     arnList = []
@@ -174,6 +221,7 @@ def aws_elasticache(event):
     _account = event['account']
     _region = event['region']
     ecArnTemplate = 'arn:aws:elasticache:@region@:@account@:cluster:@ecId@'
+    snapshotArnTemplate = 'arn:aws:elasticache:@region@:@account@:snapshot:@snapshotName@'
 
     if event['detail']['eventName'] == 'CreateReplicationGroup' or event['detail']['eventName'] == 'ModifyReplicationGroupShardConfiguration':
         print("tagging for new ElastiCache cluster...")
@@ -202,6 +250,35 @@ def aws_elasticache(event):
             }
         )
         arnList.append(event['detail']['responseElements']['aRN'])
+        
+    elif event['detail']['eventName'] == 'CreateSnapshot':
+        print("tagging for new ElastiCache snapshot...")
+        if 'snapshotName' in event['detail']['requestParameters']:
+            _snapshotName = event['detail']['requestParameters']['snapshotName']
+            arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotName@', _snapshotName))
+        
+    elif event['detail']['eventName'] == 'CopySnapshot':
+        print("tagging for copied ElastiCache snapshot...")
+        if 'targetSnapshotName' in event['detail']['requestParameters']:
+            _snapshotName = event['detail']['requestParameters']['targetSnapshotName']
+            arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotName@', _snapshotName))
+            
+    # For Redis OSS and Valkey backup operations
+    elif event['detail']['eventName'] == 'CreateServerlessCache':
+        print("tagging for new Serverless ElastiCache (Redis OSS/Valkey)...")
+        if 'serverlessCacheName' in event['detail']['responseElements']:
+            _cacheName = event['detail']['responseElements']['serverlessCacheName']
+            # Using the standard ARN format for serverless cache
+            serverlessCacheArnTemplate = 'arn:aws:elasticache:@region@:@account@:serverlesscache:@cacheName@'
+            arnList.append(serverlessCacheArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@cacheName@', _cacheName))
+    
+    elif event['detail']['eventName'] == 'CreateSnapshot' and 'serverlessCacheName' in event['detail']['requestParameters']:
+        print("tagging for new ElastiCache Serverless snapshot...")
+        if 'snapshotName' in event['detail']['requestParameters']:
+            _snapshotName = event['detail']['requestParameters']['snapshotName']
+            # Using a specific ARN format for serverless cache snapshots
+            serverlessSnapshotArnTemplate = 'arn:aws:elasticache:@region@:@account@:serverlesssnapshot:@snapshotName@'
+            arnList.append(serverlessSnapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotName@', _snapshotName))
 
     return arnList
     

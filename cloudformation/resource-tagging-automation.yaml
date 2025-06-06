@@ -134,6 +134,10 @@ Resources:
                   # Rules for RDS
                   - 'rds:AddTagsToResource'
                   - 'rds:DescribeDBInstances'
+                  
+                  # Rules for DocumentDB
+                  - 'rds:AddTagsToResource'
+                  - 'rds:DescribeDBClusterSnapshots'
 
                   # Rules for SNS
                   - 'sns:TagResource'
@@ -186,6 +190,8 @@ Resources:
                   - 'elasticache:DescribeReplicationGroups'
                   - 'elasticache:DescribeCacheClusters'
                   - 'elasticache:AddTagsToResource'
+                  - 'elasticache:DescribeSnapshots'
+                  - 'elasticache:DescribeServerlessCaches'
 
                   # Rules for Resource Group Tag Editor
                   - 'tag:getResources'
@@ -283,6 +289,12 @@ Resources:
 
               def aws_rds(event):
                   arnList = []
+                  # Check if this is a DocumentDB event (DocumentDB uses the RDS API)
+                  isDocumentDB = False
+                  if 'engine' in event['detail']['responseElements'] and event['detail']['responseElements']['engine'] == 'docdb':
+                      isDocumentDB = True
+                      print("Detected DocumentDB event through RDS API")
+                  
                   if event['detail']['eventName'] == 'CreateDBInstance':
                       print("tagging for new RDS...")
                       #db_instance_id = event['detail']['requestParameters']['dBInstanceIdentifier']
@@ -292,6 +304,32 @@ Resources:
                       #)
                       arnList.append(event['detail']['responseElements']['dBInstanceArn'])
                       return arnList
+                  elif event['detail']['eventName'] == 'CreateDBSnapshot':
+                      print("tagging for new RDS snapshot...")
+                      arnList.append(event['detail']['responseElements']['dBSnapshotArn'])
+                      return arnList
+                  elif event['detail']['eventName'] == 'CopyDBSnapshot':
+                      print("tagging for copied RDS snapshot...")
+                      arnList.append(event['detail']['responseElements']['dBSnapshotArn'])
+                      return arnList
+                  elif event['detail']['eventName'] == 'CreateDBClusterSnapshot':
+                      if isDocumentDB:
+                          print("tagging for new DocumentDB cluster snapshot...")
+                      else:
+                          print("tagging for new RDS cluster snapshot...")
+                      
+                      # Use proper key name as seen in the event
+                      arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
+                      return arnList
+                  elif event['detail']['eventName'] == 'CopyDBClusterSnapshot':
+                      if isDocumentDB:
+                          print("tagging for copied DocumentDB cluster snapshot...")
+                      else:
+                          print("tagging for copied RDS cluster snapshot...")
+                      arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
+                      return arnList
+                  
+                  return arnList  # Return empty list if no matching event name
 
               def aws_s3(event):
                   arnList = []
@@ -461,6 +499,7 @@ Resources:
                   _account = event['account']
                   _region = event['region']
                   ecArnTemplate = 'arn:aws:elasticache:@region@:@account@:cluster:@ecId@'
+                  snapshotArnTemplate = 'arn:aws:elasticache:@region@:@account@:snapshot:@snapshotName@'
 
                   if event['detail']['eventName'] == 'CreateReplicationGroup' or event['detail']['eventName'] == 'ModifyReplicationGroupShardConfiguration':
                       print("tagging for new ElastiCache cluster...")
@@ -490,6 +529,35 @@ Resources:
                           }
                       )
                       arnList.append(event['detail']['responseElements']['aRN'])
+                      
+                  elif event['detail']['eventName'] == 'CreateSnapshot':
+                      print("tagging for new ElastiCache snapshot...")
+                      if 'snapshotName' in event['detail']['requestParameters']:
+                          _snapshotName = event['detail']['requestParameters']['snapshotName']
+                          arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotName@', _snapshotName))
+                      
+                  elif event['detail']['eventName'] == 'CopySnapshot':
+                      print("tagging for copied ElastiCache snapshot...")
+                      if 'targetSnapshotName' in event['detail']['requestParameters']:
+                          _snapshotName = event['detail']['requestParameters']['targetSnapshotName']
+                          arnList.append(snapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotName@', _snapshotName))
+                          
+                  # For Redis OSS and Valkey backup operations
+                  elif event['detail']['eventName'] == 'CreateServerlessCache':
+                      print("tagging for new Serverless ElastiCache (Redis OSS/Valkey)...")
+                      if 'serverlessCacheName' in event['detail']['responseElements']:
+                          _cacheName = event['detail']['responseElements']['serverlessCacheName']
+                          # Using the standard ARN format for serverless cache
+                          serverlessCacheArnTemplate = 'arn:aws:elasticache:@region@:@account@:serverlesscache:@cacheName@'
+                          arnList.append(serverlessCacheArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@cacheName@', _cacheName))
+                  
+                  elif event['detail']['eventName'] == 'CreateSnapshot' and 'serverlessCacheName' in event['detail']['requestParameters']:
+                      print("tagging for new ElastiCache Serverless snapshot...")
+                      if 'snapshotName' in event['detail']['requestParameters']:
+                          _snapshotName = event['detail']['requestParameters']['snapshotName']
+                          # Using a specific ARN format for serverless cache snapshots
+                          serverlessSnapshotArnTemplate = 'arn:aws:elasticache:@region@:@account@:serverlesssnapshot:@snapshotName@'
+                          arnList.append(serverlessSnapshotArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@snapshotName@', _snapshotName))
 
                   return arnList
                   
@@ -592,11 +660,11 @@ Resources:
       Name: !Ref EventBridgeRuleName
       EventPattern: '{
                       "detail": {
-                        "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com","redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "ecs.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com", "elasticache.amazonaws.com"],
-                        "eventName": ["RunInstances", "CreateFunction20150331", "CreateBucket", "CreateDBInstance", "CreateTable", "CreateVolume", "CreateLoadBalancer", "CreateMountTarget", "CreateDomain", "CreateQueue", "CreateTopic", "CreateKey", "CreateCluster", "CreateNamespace", "CreateWorkgroup", "CreateNotebookInstance", "CreateProcessingJob", "CreateEndpoint", "CreateDomain", "CreateModel", "CreateLabelingJob", "CreateTrainingJob", "CreateTransformJob", "CreateUserProfile", "CreateWorkteam", "PutMetricAlarm", "CreateLogGroup", "CreateClusterV2", "CreateBroker", "CreateSnapshot", "CopySnapshot", "CreateImage", "CreateReplicationGroup", "CreateCacheCluster", "ModifyReplicationGroupShardConfiguration"]
+                        "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com","redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "ecs.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com", "elasticache.amazonaws.com", "docdb.amazonaws.com"],
+                        "eventName": ["RunInstances", "CreateFunction20150331", "CreateBucket", "CreateDBInstance", "CreateDBSnapshot", "CopyDBSnapshot", "CreateDBClusterSnapshot", "CopyDBClusterSnapshot", "CreateTable", "CreateVolume", "CreateLoadBalancer", "CreateMountTarget", "CreateDomain", "CreateQueue", "CreateTopic", "CreateKey", "CreateCluster", "CreateNamespace", "CreateWorkgroup", "CreateNotebookInstance", "CreateProcessingJob", "CreateEndpoint", "CreateDomain", "CreateModel", "CreateLabelingJob", "CreateTrainingJob", "CreateTransformJob", "CreateUserProfile", "CreateWorkteam", "PutMetricAlarm", "CreateLogGroup", "CreateClusterV2", "CreateBroker", "CreateSnapshot", "CopySnapshot", "CreateImage", "CreateReplicationGroup", "CreateCacheCluster", "ModifyReplicationGroupShardConfiguration", "CreateServerlessCache"]
                       },
                       "detail-type": ["AWS API Call via CloudTrail"],
-                      "source": ["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.ecs", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq", "aws.elasticache"]
+                      "source": ["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.ecs", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq", "aws.elasticache", "aws.docdb"]
                     }'
       Targets:
         - Arn: !GetAtt LambdaAutoTagging.Arn
