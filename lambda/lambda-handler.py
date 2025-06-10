@@ -95,6 +95,13 @@ def aws_rds(event):
         #)
         arnList.append(event['detail']['responseElements']['dBInstanceArn'])
         return arnList
+    elif event['detail']['eventName'] == 'CreateDBCluster':
+        if isDocumentDB:
+            print("tagging for new DocumentDB cluster...")
+        else:
+            print("tagging for new Aurora cluster...")
+        arnList.append(event['detail']['responseElements']['dBClusterArn'])
+        return arnList
     elif event['detail']['eventName'] == 'CreateDBSnapshot':
         print("tagging for new RDS snapshot...")
         arnList.append(event['detail']['responseElements']['dBSnapshotArn'])
