@@ -301,7 +301,7 @@ def get_identity(event):
 def main(event, context):
     print(f"input event is: {event}")
     print("new source is ", event['source'])
-    _method = event['source'].replace('.', "_")
+    _method = event['source'].replace('.', "_").replace('-', "_")
 
     resARNs = globals()[_method](event)
     print("resource arn is: ", resARNs)
