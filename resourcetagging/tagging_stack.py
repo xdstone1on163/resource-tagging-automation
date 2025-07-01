@@ -40,7 +40,11 @@ class ResourceTaggingStack(Stack):
             "cloudformation:ListStackResources", "elasticache:DescribeReplicationGroups", "elasticache:DescribeCacheClusters", "elasticache:AddTagsToResource",
             "elasticache:DescribeSnapshots", "elasticache:DescribeServerlessCaches",
             "redshift:CreateTags", "redshift-serverless:TagResource", "sagemaker:AddTags", "ecs:TagResource", "kafka:TagResource",
-            "logs:TagLogGroup", "cloudwatch:TagResource", "mq:CreateTags", "resource-groups:*"]
+            "logs:TagLogGroup", "cloudwatch:TagResource", "mq:CreateTags", 
+            "elasticmapreduce:AddTags", "elasticmapreduce:DescribeCluster", "elasticmapreduce:ListClusters",
+            "emr-serverless:TagResource", "emr-serverless:ListApplications",
+            "emr-containers:TagResource", "emr-containers:DescribeVirtualCluster",
+            "resource-groups:*"]
         ))
 
         # create lambda function
@@ -60,11 +64,11 @@ class ResourceTaggingStack(Stack):
 
         _eventRule = _events.Rule(self, "resource-tagging-automation-rule",
                         event_pattern=_events.EventPattern(
-                            source=["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.elasticache", "aws.ecs", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq", "aws.docdb"],
+                            source=["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.elasticache", "aws.ecs", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq", "aws.docdb", "aws.emr", "aws.emr-serverless", "aws.emr-containers"],
                             detail_type=["AWS API Call via CloudTrail"],
                             detail={
-                                "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com", "elasticache.amazonaws.com", "redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "ecs.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com", "docdb.amazonaws.com"],
-                                "eventName": ["RunInstances", "CreateFunction20150331", "CreateBucket", "CreateDBInstance", "CreateDBCluster", "CreateDBSnapshot", "CopyDBSnapshot", "CreateDBClusterSnapshot", "CopyDBClusterSnapshot", "CreateTable", "CreateVolume", "CreateLoadBalancer", "CreateMountTarget", "CreateDomain", "CreateQueue", "CreateTopic", "CreateKey", "CreateReplicationGroup", "CreateCacheCluster", "ModifyReplicationGroupShardConfiguration", "CreateSnapshot", "CopySnapshot", "CreateImage", "CreateCluster", "CreateNamespace", "CreateWorkgroup", "CreateNotebookInstance", "CreateProcessingJob", "CreateEndpoint", "CreateModel", "CreateLabelingJob", "CreateTrainingJob", "CreateTransformJob", "CreateUserProfile", "CreateWorkteam", "PutMetricAlarm", "CreateLogGroup", "CreateClusterV2", "CreateBroker", "CreateServerlessCache"]
+                                "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com", "elasticache.amazonaws.com", "redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "ecs.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com", "docdb.amazonaws.com", "elasticmapreduce.amazonaws.com", "emr-serverless.amazonaws.com", "emr-containers.amazonaws.com"],
+                                "eventName": ["RunInstances", "CreateFunction20150331", "CreateBucket", "CreateDBInstance", "CreateDBCluster", "CreateDBSnapshot", "CopyDBSnapshot", "CreateDBClusterSnapshot", "CopyDBClusterSnapshot", "CreateTable", "CreateVolume", "CreateLoadBalancer", "CreateMountTarget", "CreateDomain", "CreateQueue", "CreateTopic", "CreateKey", "CreateReplicationGroup", "CreateCacheCluster", "ModifyReplicationGroupShardConfiguration", "CreateSnapshot", "CopySnapshot", "CreateImage", "CreateCluster", "CreateNamespace", "CreateWorkgroup", "CreateNotebookInstance", "CreateProcessingJob", "CreateEndpoint", "CreateModel", "CreateLabelingJob", "CreateTrainingJob", "CreateTransformJob", "CreateUserProfile", "CreateWorkteam", "PutMetricAlarm", "CreateLogGroup", "CreateClusterV2", "CreateBroker", "CreateServerlessCache", "RunJobFlow", "CreateApplication", "CreateVirtualCluster"]
                             }
                         )
                     )

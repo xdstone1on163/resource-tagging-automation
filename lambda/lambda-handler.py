@@ -287,6 +287,46 @@ def aws_es(event):
         arnList.append(event['detail']['responseElements']['domainStatus']['aRN'])
         return arnList
 
+def aws_emr(event):
+    arnList = []
+    _account = event['account']
+    _region = event['region']
+    
+    # EMR on EC2
+    if event['detail']['eventName'] == 'RunJobFlow':
+        print("tagging for new EMR on EC2 cluster...")
+        cluster_id = event['detail']['responseElements']['jobFlowId']
+        emr_arn = f'arn:aws:elasticmapreduce:{_region}:{_account}:cluster/{cluster_id}'
+        arnList.append(emr_arn)
+        
+    return arnList
+
+def aws_emr_serverless(event):
+    arnList = []
+    _account = event['account']
+    _region = event['region']
+    
+    if event['detail']['eventName'] == 'CreateApplication':
+        print("tagging for new EMR Serverless application...")
+        app_id = event['detail']['responseElements']['applicationId']
+        app_arn = f'arn:aws:emr-serverless:{_region}:{_account}:/applications/{app_id}'
+        arnList.append(app_arn)
+        
+    return arnList
+
+def aws_emr_containers(event):
+    arnList = []
+    _account = event['account']
+    _region = event['region']
+    
+    if event['detail']['eventName'] == 'CreateVirtualCluster':
+        print("tagging for new EMR on EKS virtual cluster...")
+        vc_id = event['detail']['responseElements']['id']
+        vc_arn = f'arn:aws:emr-containers:{_region}:{_account}:/virtualclusters/{vc_id}'
+        arnList.append(vc_arn)
+        
+    return arnList
+
 def aws_kafka(event):
     arnList = []
     if event['detail']['eventName'] == 'CreateClusterV2':
