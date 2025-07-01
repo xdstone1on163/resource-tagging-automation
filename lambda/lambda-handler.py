@@ -87,13 +87,34 @@ def aws_rds(event):
         print("Detected DocumentDB event through RDS API")
     
     if event['detail']['eventName'] == 'CreateDBInstance':
-        print("tagging for new RDS...")
-        #db_instance_id = event['detail']['requestParameters']['dBInstanceIdentifier']
-        #waiter = boto3.client('rds').get_waiter('db_instance_available')
-        #waiter.wait(
-        #    DBInstanceIdentifier = db_instance_id
-        #)
-        arnList.append(event['detail']['responseElements']['dBInstanceArn'])
+        if isDocumentDB:
+            print("tagging for new DocumentDB instance...")
+            # Get the instance identifier
+            db_instance_id = event['detail']['responseElements']['dBInstanceIdentifier']
+            
+            # Wait for the instance to be available
+            try:
+                waiter = boto3.client('docdb').get_waiter('db_instance_available')
+                waiter.wait(
+                    DBInstanceIdentifier=db_instance_id,
+                    WaiterConfig={
+                        'Delay': 30,
+                        'MaxAttempts': 20
+                    }
+                )
+            except Exception as e:
+                print(f"Warning: Waiter for DocumentDB instance failed: {e}")
+                # Continue with tagging even if waiter fails
+                
+            arnList.append(event['detail']['responseElements']['dBInstanceArn'])
+        else:
+            print("tagging for new RDS...")
+            #db_instance_id = event['detail']['requestParameters']['dBInstanceIdentifier']
+            #waiter = boto3.client('rds').get_waiter('db_instance_available')
+            #waiter.wait(
+            #    DBInstanceIdentifier = db_instance_id
+            #)
+            arnList.append(event['detail']['responseElements']['dBInstanceArn'])
         return arnList
     elif event['detail']['eventName'] == 'CreateDBCluster':
         if isDocumentDB:
@@ -129,19 +150,62 @@ def aws_rds(event):
     
     return arnList  # Return empty list if no matching event name
 
-# This function won't be called for DocumentDB since the event source is "aws.rds"
-# Keeping it as a placeholder in case AWS changes the API in the future
+# This function handles direct DocumentDB events if AWS changes their API in the future
+# Currently, DocumentDB events are routed through the RDS API
 def aws_docdb(event):
-    print("Warning: Direct DocumentDB event received, but DocumentDB events normally route through RDS API")
+    print("Direct DocumentDB event received")
     arnList = []
-    if event['detail']['eventName'] == 'CreateDBClusterSnapshot':
-        print("tagging for new DocumentDB cluster snapshot...")
+    _account = event['account']
+    _region = event['region']
+    
+    if event['detail']['eventName'] == 'CreateDBInstance':
+        print("tagging for new DocumentDB instance (direct API)...")
+        db_instance_id = event['detail']['responseElements']['dBInstanceIdentifier']
+        
+        # Wait for the instance to be available
+        try:
+            waiter = boto3.client('docdb').get_waiter('db_instance_available')
+            waiter.wait(
+                DBInstanceIdentifier=db_instance_id,
+                WaiterConfig={
+                    'Delay': 30,
+                    'MaxAttempts': 20
+                }
+            )
+        except Exception as e:
+            print(f"Warning: Waiter for DocumentDB instance failed: {e}")
+            # Continue with tagging even if waiter fails
+            
+        # If ARN is directly available in the response
+        if 'dBInstanceArn' in event['detail']['responseElements']:
+            arnList.append(event['detail']['responseElements']['dBInstanceArn'])
+        else:
+            # Construct the ARN if not available
+            docdbInstanceArnTemplate = 'arn:aws:rds:@region@:@account@:db:@instanceId@'
+            arnList.append(docdbInstanceArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@instanceId@', db_instance_id))
+        return arnList
+    
+    elif event['detail']['eventName'] == 'CreateDBCluster':
+        print("tagging for new DocumentDB cluster (direct API)...")
+        if 'dBClusterArn' in event['detail']['responseElements']:
+            arnList.append(event['detail']['responseElements']['dBClusterArn'])
+        else:
+            # Construct the ARN if not available
+            cluster_id = event['detail']['responseElements']['dBClusterIdentifier']
+            docdbClusterArnTemplate = 'arn:aws:rds:@region@:@account@:cluster:@clusterId@'
+            arnList.append(docdbClusterArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@clusterId@', cluster_id))
+        return arnList
+        
+    elif event['detail']['eventName'] == 'CreateDBClusterSnapshot':
+        print("tagging for new DocumentDB cluster snapshot (direct API)...")
         arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
         return arnList
+        
     elif event['detail']['eventName'] == 'CopyDBClusterSnapshot':
-        print("tagging for copied DocumentDB cluster snapshot...")
+        print("tagging for copied DocumentDB cluster snapshot (direct API)...")
         arnList.append(event['detail']['responseElements']['dBClusterSnapshotArn'])
         return arnList
+        
     return arnList
 
 def aws_s3(event):
@@ -222,6 +286,14 @@ def aws_es(event):
         print("tagging for new open search...")
         arnList.append(event['detail']['responseElements']['domainStatus']['aRN'])
         return arnList
+
+def aws_kafka(event):
+    arnList = []
+    if event['detail']['eventName'] == 'CreateClusterV2':
+        print("tagging for new MSK cluster...")
+        arnList.append(event['detail']['responseElements']['clusterArn'])
+        return arnList
+    return arnList
 
 def aws_elasticache(event):
     arnList = []
