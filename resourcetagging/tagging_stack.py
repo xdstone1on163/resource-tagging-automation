@@ -44,6 +44,8 @@ class ResourceTaggingStack(Stack):
             "elasticmapreduce:AddTags", "elasticmapreduce:DescribeCluster", "elasticmapreduce:ListClusters",
             "emr-serverless:TagResource", "emr-serverless:ListApplications",
             "emr-containers:TagResource", "emr-containers:DescribeVirtualCluster",
+            "batch:TagResource", "batch:ListTagsForResource", "batch:DescribeComputeEnvironments", "batch:DescribeJobQueues", "batch:DescribeJobs",
+            "autoscaling:CreateOrUpdateTags", "autoscaling:DescribeAutoScalingGroups",
             "resource-groups:*"]
         ))
 
@@ -52,7 +54,7 @@ class ResourceTaggingStack(Stack):
                                     runtime=_lambda.Runtime.PYTHON_3_10,
                                     memory_size=128,
                                     timeout=Duration.seconds(600),
-                                    handler="lambda-handler.main",
+                                    handler="lambda_handler.main",
                                     code=_lambda.Code.from_asset("./lambda"),
                                     function_name="resource-tagging-automation-function",
                                     role=lambda_role,
@@ -62,15 +64,30 @@ class ResourceTaggingStack(Stack):
                                     }
                         )
 
+        # Main EventBridge rule for most services
         _eventRule = _events.Rule(self, "resource-tagging-automation-rule",
                         event_pattern=_events.EventPattern(
-                            source=["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.elasticache", "aws.ecs", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq", "aws.docdb", "aws.emr", "aws.emr-serverless", "aws.emr-containers"],
+                            source=["aws.ec2", "aws.elasticloadbalancing", "aws.rds", "aws.lambda", "aws.s3", "aws.dynamodb", "aws.elasticfilesystem", "aws.es", "aws.sqs", "aws.sns", "aws.kms", "aws.elasticache", "aws.redshift", "aws.redshift-serverless", "aws.sagemaker", "aws.monitoring", "aws.logs", "aws.kafka", "aws.amazonmq", "aws.docdb", "aws.emr", "aws.emr-serverless", "aws.emr-containers"],
                             detail_type=["AWS API Call via CloudTrail"],
                             detail={
-                                "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com", "elasticache.amazonaws.com", "redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "ecs.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com", "docdb.amazonaws.com", "elasticmapreduce.amazonaws.com", "emr-serverless.amazonaws.com", "emr-containers.amazonaws.com"],
+                                "eventSource": ["ec2.amazonaws.com", "elasticloadbalancing.amazonaws.com", "s3.amazonaws.com", "rds.amazonaws.com", "lambda.amazonaws.com", "dynamodb.amazonaws.com", "elasticfilesystem.amazonaws.com", "es.amazonaws.com", "sqs.amazonaws.com", "sns.amazonaws.com", "kms.amazonaws.com", "elasticache.amazonaws.com", "redshift.amazonaws.com", "redshift-serverless.amazonaws.com", "sagemaker.amazonaws.com", "monitoring.amazonaws.com", "logs.amazonaws.com", "kafka.amazonaws.com", "amazonmq.amazonaws.com", "docdb.amazonaws.com", "elasticmapreduce.amazonaws.com", "emr-serverless.amazonaws.com", "emr-containers.amazonaws.com"],
                                 "eventName": ["RunInstances", "CreateFunction20150331", "CreateBucket", "CreateDBInstance", "CreateDBCluster", "CreateDBSnapshot", "CopyDBSnapshot", "CreateDBClusterSnapshot", "CopyDBClusterSnapshot", "CreateTable", "CreateVolume", "CreateLoadBalancer", "CreateMountTarget", "CreateDomain", "CreateQueue", "CreateTopic", "CreateKey", "CreateReplicationGroup", "CreateCacheCluster", "ModifyReplicationGroupShardConfiguration", "CreateSnapshot", "CopySnapshot", "CreateImage", "CreateCluster", "CreateNamespace", "CreateWorkgroup", "CreateNotebookInstance", "CreateProcessingJob", "CreateEndpoint", "CreateModel", "CreateLabelingJob", "CreateTrainingJob", "CreateTransformJob", "CreateUserProfile", "CreateWorkteam", "PutMetricAlarm", "CreateLogGroup", "CreateClusterV2", "CreateBroker", "CreateServerlessCache", "RunJobFlow", "CreateApplication", "CreateVirtualCluster"]
                             }
                         )
                     )
 
+        # Additional EventBridge rule for Batch and ECS (Fargate) resources
+        _batchEcsRule = _events.Rule(self, "resource-tagging-batch-ecs-rule",
+                        event_pattern=_events.EventPattern(
+                            source=["aws.batch", "aws.ecs"],
+                            detail_type=["AWS API Call via CloudTrail"],
+                            detail={
+                                "eventSource": ["batch.amazonaws.com", "ecs.amazonaws.com"],
+                                "eventName": ["CreateJobQueue", "CreateComputeEnvironment", "RegisterJobDefinition", "SubmitJob", "RunTask", "CreateService", "StartTask", "CreateCluster"]
+                            }
+                        )
+                    )
+
+        # Add targets to both rules
         _eventRule.add_target(_targets.LambdaFunction(tagging_function, retry_attempts=2))
+        _batchEcsRule.add_target(_targets.LambdaFunction(tagging_function, retry_attempts=2))
