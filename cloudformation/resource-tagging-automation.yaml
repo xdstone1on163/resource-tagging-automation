@@ -186,6 +186,7 @@ Resources:
 
                   # Rules for CloudWatch logs and alarms
                   - 'logs:TagLogGroup'
+                  - 'logs:ListTagsLogGroup'
                   - 'cloudwatch:TagResource'
 
                   # Rules for Amazon MQ
@@ -980,16 +981,68 @@ Resources:
                   _res_tags['userId'] = _userId
               
               print(f"Applying tags: {_res_tags}")
-              
+
               # Try to tag each resource individually to avoid failing the entire batch
               for arn in resARNs:
                   try:
                       print(f"Tagging resource: {arn}")
-                      boto3.client('resourcegroupstaggingapi').tag_resources(
-                          ResourceARNList=[arn],
-                          Tags=_res_tags
-                      )
-                      print(f"Successfully tagged: {arn}")
+
+                      # CloudWatch Logs requires a specific API, not the Resource Groups Tagging API
+                      if ':log-group:' in arn:
+                          # Extract log group name from ARN: arn:aws:logs:region:account:log-group:log-group-name
+                          log_group_name = arn.split(':log-group:')[1]
+                          print(f"Using CloudWatch Logs API for log group: {log_group_name}")
+
+                          logs_client = boto3.client('logs')
+                          logs_client.tag_log_group(
+                              logGroupName=log_group_name,
+                              tags=_res_tags
+                          )
+                          print(f"Successfully tagged log group: {log_group_name}")
+
+                          # Verify tags were applied
+                          try:
+                              response = logs_client.list_tags_log_group(logGroupName=log_group_name)
+                              actual_tags = response.get('tags', {})
+                              print(f"Verification - Current tags on {log_group_name}: {actual_tags}")
+
+                              # Check if all expected tags are present
+                              missing_tags = [key for key in _res_tags if key not in actual_tags or actual_tags[key] != _res_tags[key]]
+                              if missing_tags:
+                                  print(f"WARNING: Some tags were not applied successfully: {missing_tags}")
+                              else:
+                                  print(f"Verification successful - All tags applied correctly")
+                          except Exception as verify_error:
+                              print(f"Warning: Failed to verify tags for {log_group_name}: {verify_error}")
+                      else:
+                          # Use Resource Groups Tagging API for other resources
+                          tagging_client = boto3.client('resourcegroupstaggingapi')
+                          tagging_client.tag_resources(
+                              ResourceARNList=[arn],
+                              Tags=_res_tags
+                          )
+                          print(f"Successfully tagged: {arn}")
+
+                          # Verify tags were applied
+                          try:
+                              response = tagging_client.get_resources(
+                                  ResourceARNList=[arn]
+                              )
+                              if response['ResourceTagMappingList']:
+                                  actual_tags = {tag['Key']: tag['Value'] for tag in response['ResourceTagMappingList'][0].get('Tags', [])}
+                                  print(f"Verification - Current tags on {arn}: {actual_tags}")
+
+                                  # Check if all expected tags are present
+                                  missing_tags = [key for key in _res_tags if key not in actual_tags or actual_tags[key] != _res_tags[key]]
+                                  if missing_tags:
+                                      print(f"WARNING: Some tags were not applied successfully: {missing_tags}")
+                                  else:
+                                      print(f"Verification successful - All tags applied correctly")
+                              else:
+                                  print(f"Warning: Resource {arn} not found during verification")
+                          except Exception as verify_error:
+                              print(f"Warning: Failed to verify tags for {arn}: {verify_error}")
+
                   except Exception as e:
                       print(f"Error tagging resource {arn}: {e}")
               
