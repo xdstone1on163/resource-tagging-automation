@@ -16,6 +16,10 @@ def aws_ec2(event):
     ec2_resource = boto3.resource('ec2')
     if event['detail']['eventName'] == 'RunInstances':
         print("tagging for new EC2...")
+        # Check if responseElements exists (can be None for failed API calls or DryRun operations)
+        if event['detail']['responseElements'] is None:
+            print("RunInstances failed or was a DryRun operation, skipping tagging")
+            return arnList
         for item in event['detail']['responseElements']['instancesSet']['items']:
             _instanceId = item['instanceId']
             arnList.append(ec2ArnTemplate.replace('@region@', _region).replace('@account@', _account).replace('@instanceId@', _instanceId))
@@ -285,6 +289,18 @@ def aws_es(event):
     if event['detail']['eventName'] == 'CreateDomain':
         print("tagging for new open search...")
         arnList.append(event['detail']['responseElements']['domainStatus']['aRN'])
+        return arnList
+
+def aws_logs(event):
+    arnList = []
+    _account = event['account']
+    _region = event['region']
+    if event['detail']['eventName'] == 'CreateLogGroup':
+        print("tagging for new CloudWatch Log Group...")
+        _logGroupName = event['detail']['requestParameters']['logGroupName']
+        # CloudWatch Logs ARN format: arn:aws:logs:region:account:log-group:log-group-name
+        logGroupArn = f'arn:aws:logs:{_region}:{_account}:log-group:{_logGroupName}'
+        arnList.append(logGroupArn)
         return arnList
 
 def aws_emr(event):
