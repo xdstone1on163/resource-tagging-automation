@@ -212,8 +212,8 @@ def aws_s3(event):
     arnList = []
     if event['detail']['eventName'] == 'CreateBucket':
         print("tagging for new S3...")
-        _bkcuetName = event['detail']['requestParameters']['bucketName']
-        arnList.append('arn:aws:s3:::' + _bkcuetName)
+        _bucketName = event['detail']['requestParameters']['bucketName']
+        arnList.append('arn:aws:s3:::' + _bucketName)
         return arnList
         
 def aws_lambda(event):
@@ -222,7 +222,7 @@ def aws_lambda(event):
     _exist2 = event['detail']['eventName'] == 'CreateFunction20150331'
     if  _exist1!= None and _exist2:
         function_name = event['detail']['responseElements']['functionName']
-        print('Functin name is :', function_name)
+        print('Function name is :', function_name)
         arnList.append(event['detail']['responseElements']['functionArn'])
         return arnList
 
@@ -234,8 +234,8 @@ def aws_dynamodb(event):
         waiter.wait(
             TableName=table_name,
             WaiterConfig={
-                'Delay': 123,
-                'MaxAttempts': 123
+                'Delay': 30,
+                'MaxAttempts': 20
             }
         )
         arnList.append(event['detail']['responseElements']['tableDescription']['tableArn'])
@@ -309,7 +309,7 @@ def aws_emr_serverless(event):
     if event['detail']['eventName'] == 'CreateApplication':
         print("tagging for new EMR Serverless application...")
         app_id = event['detail']['responseElements']['applicationId']
-        app_arn = f'arn:aws:emr-serverless:{_region}:{_account}:/applications/{app_id}'
+        app_arn = f'arn:aws:emr-serverless:{_region}:{_account}:applications/{app_id}'
         arnList.append(app_arn)
         
     return arnList
@@ -322,7 +322,7 @@ def aws_emr_containers(event):
     if event['detail']['eventName'] == 'CreateVirtualCluster':
         print("tagging for new EMR on EKS virtual cluster...")
         vc_id = event['detail']['responseElements']['id']
-        vc_arn = f'arn:aws:emr-containers:{_region}:{_account}:/virtualclusters/{vc_id}'
+        vc_arn = f'arn:aws:emr-containers:{_region}:{_account}:virtualclusters/{vc_id}'
         arnList.append(vc_arn)
         
     return arnList
@@ -549,8 +549,8 @@ def aws_elasticache(event):
         waiter.wait(
             ReplicationGroupId = _replicationGroupId,
             WaiterConfig={
-                'Delay': 123,
-                'MaxAttempts': 123
+                'Delay': 30,
+                'MaxAttempts': 20
             }
         )
         _clusters = event['detail']['responseElements']['memberClusters']
@@ -564,8 +564,8 @@ def aws_elasticache(event):
         waiter.wait(
             CacheClusterId = _cacheClusterId,
             WaiterConfig={
-                'Delay': 123,
-                'MaxAttempts': 123
+                'Delay': 30,
+                'MaxAttempts': 20
             }
         )
         arnList.append(event['detail']['responseElements']['aRN'])
