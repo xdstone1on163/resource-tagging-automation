@@ -982,69 +982,189 @@ Resources:
               
               print(f"Applying tags: {_res_tags}")
 
+              # Helper function to read existing tags from any AWS resource
+              def get_existing_tags(arn, service_clients):
+                  """
+                  Read existing tags for any AWS resource.
+                  Returns dict of existing tags, or empty dict if none/error.
+                  """
+                  try:
+                      # CloudWatch Logs
+                      if ':log-group:' in arn:
+                          log_group_name = arn.split(':log-group:')[1]
+                          logs_client = service_clients.get('logs') or boto3.client('logs')
+                          response = logs_client.list_tags_log_group(logGroupName=log_group_name)
+                          existing = response.get('tags', {})
+                          print(f"Existing tags on log group {log_group_name}: {existing}")
+                          return existing
+
+                      # S3 Buckets
+                      elif arn.startswith('arn:aws:s3:::'):
+                          bucket_name = arn.split(':::')[1]
+                          s3_client = service_clients.get('s3') or boto3.client('s3')
+                          try:
+                              response = s3_client.get_bucket_tagging(Bucket=bucket_name)
+                              existing = {tag['Key']: tag['Value'] for tag in response.get('TagSet', [])}
+                              print(f"Existing tags on S3 bucket {bucket_name}: {existing}")
+                              return existing
+                          except s3_client.exceptions.NoSuchTagSet:
+                              print(f"No existing tags on S3 bucket {bucket_name}")
+                              return {}
+
+                      # All other services - use Resource Groups Tagging API
+                      else:
+                          tagging_client = service_clients.get('tagging') or boto3.client('resourcegroupstaggingapi')
+                          response = tagging_client.get_resources(ResourceARNList=[arn])
+
+                          if response.get('ResourceTagMappingList'):
+                              tags_list = response['ResourceTagMappingList'][0].get('Tags', [])
+                              existing = {tag['Key']: tag['Value'] for tag in tags_list}
+                              print(f"Existing tags on {arn}: {existing}")
+                              return existing
+                          else:
+                              print(f"No existing tags found for {arn}")
+                              return {}
+
+                  except Exception as e:
+                      print(f"Could not retrieve existing tags for {arn}: {e}")
+                      print("Proceeding with empty existing tags (safe fallback)")
+                      return {}
+
+              # Helper function to apply tags to a resource
+              def apply_tags(arn, merged_tags, service_clients):
+                  """
+                  Apply tags to a resource using the appropriate API.
+                  """
+                  # CloudWatch Logs
+                  if ':log-group:' in arn:
+                      log_group_name = arn.split(':log-group:')[1]
+                      print(f"Using CloudWatch Logs API for log group: {log_group_name}")
+                      service_clients['logs'].tag_log_group(
+                          logGroupName=log_group_name,
+                          tags=merged_tags
+                      )
+                      print(f"Successfully tagged log group: {log_group_name}")
+
+                  # S3 Buckets
+                  elif arn.startswith('arn:aws:s3:::'):
+                      bucket_name = arn.split(':::')[1]
+                      print(f"Using S3 API for bucket: {bucket_name}")
+                      tag_set = [{'Key': k, 'Value': v} for k, v in merged_tags.items()]
+                      service_clients['s3'].put_bucket_tagging(
+                          Bucket=bucket_name,
+                          Tagging={'TagSet': tag_set}
+                      )
+                      print(f"Successfully tagged S3 bucket: {bucket_name}")
+
+                  # All other services
+                  else:
+                      service_clients['tagging'].tag_resources(
+                          ResourceARNList=[arn],
+                          Tags=merged_tags
+                      )
+                      print(f"Successfully tagged: {arn}")
+
+              # Helper function to verify tags were applied correctly
+              def verify_tags_applied(arn, original_existing_tags, expected_merged_tags, service_clients):
+                  """
+                  Verify that tags were applied correctly and existing tags weren't lost.
+                  Returns: (success: bool, missing_new_tags: list, lost_existing_tags: list)
+                  """
+                  try:
+                      # Read tags again to verify
+                      actual_tags = get_existing_tags(arn, service_clients)
+
+                      print(f"Verification - Current tags on resource: {actual_tags}")
+
+                      # Check if new tags were applied
+                      missing_new_tags = [key for key in _res_tags if key not in actual_tags]
+                      if missing_new_tags:
+                          print(f"WARNING: Some new tags were not applied: {missing_new_tags}")
+
+                      # Check if existing tags were preserved (critical check)
+                      lost_existing_tags = []
+                      if original_existing_tags:
+                          lost_existing_tags = [key for key in original_existing_tags if key not in actual_tags]
+                          if lost_existing_tags:
+                              print(f"ERROR: Some existing tags were lost: {lost_existing_tags}")
+                              print(f"   Lost tags were: {[(k, original_existing_tags[k]) for k in lost_existing_tags]}")
+                          else:
+                              print(f"Verification successful - All existing tags preserved, new tags applied")
+                      else:
+                          print(f"Verification successful - New tags applied to previously untagged resource")
+
+                      # Return verification result
+                      success = (len(missing_new_tags) == 0 and len(lost_existing_tags) == 0)
+                      return success, missing_new_tags, lost_existing_tags
+
+                  except Exception as verify_error:
+                      print(f"Warning: Failed to verify tags for {arn}: {verify_error}")
+                      return False, [], []
+
+              # Initialize service clients once (reuse for efficiency)
+              service_clients = {
+                  'logs': boto3.client('logs'),
+                  's3': boto3.client('s3'),
+                  'tagging': boto3.client('resourcegroupstaggingapi')
+              }
+
               # Try to tag each resource individually to avoid failing the entire batch
               for arn in resARNs:
                   try:
                       print(f"Tagging resource: {arn}")
 
-                      # CloudWatch Logs requires a specific API, not the Resource Groups Tagging API
-                      if ':log-group:' in arn:
-                          # Extract log group name from ARN: arn:aws:logs:region:account:log-group:log-group-name
-                          log_group_name = arn.split(':log-group:')[1]
-                          print(f"Using CloudWatch Logs API for log group: {log_group_name}")
+                      # STEP 1: Read existing tags
+                      existing_tags = get_existing_tags(arn, service_clients)
 
-                          logs_client = boto3.client('logs')
-                          logs_client.tag_log_group(
-                              logGroupName=log_group_name,
-                              tags=_res_tags
+                      # STEP 2: Merge tags (new tags overwrite existing on conflict)
+                      merged_tags = {**existing_tags, **_res_tags}
+                      print(f"Merged tags to apply: {merged_tags}")
+
+                      # Check tag limit (AWS max is 50 tags per resource)
+                      if len(merged_tags) > 50:
+                          print(f"WARNING: Merged tags ({len(merged_tags)}) exceed AWS limit (50). Some tags may be rejected.")
+
+                      # STEP 3: Write merged tags (with retry logic)
+                      apply_tags(arn, merged_tags, service_clients)
+
+                      # STEP 4: Verify tags were applied correctly
+                      success, missing_new_tags, lost_existing_tags = verify_tags_applied(
+                          arn, existing_tags, merged_tags, service_clients
+                      )
+
+                      # STEP 5: Retry if verification failed
+                      if not success:
+                          print(f"Verification failed for {arn}. Retrying after 5 seconds...")
+                          import time
+                          time.sleep(5)  # Wait for AWS eventual consistency
+
+                          print(f"Retrying tagging operation for {arn}...")
+                          apply_tags(arn, merged_tags, service_clients)
+
+                          # Verify again after retry
+                          print(f"Verifying tags after retry for {arn}...")
+                          success_retry, missing_new_tags_retry, lost_existing_tags_retry = verify_tags_applied(
+                              arn, existing_tags, merged_tags, service_clients
                           )
-                          print(f"Successfully tagged log group: {log_group_name}")
 
-                          # Verify tags were applied
-                          try:
-                              response = logs_client.list_tags_log_group(logGroupName=log_group_name)
-                              actual_tags = response.get('tags', {})
-                              print(f"Verification - Current tags on {log_group_name}: {actual_tags}")
-
-                              # Check if all expected tags are present
-                              missing_tags = [key for key in _res_tags if key not in actual_tags or actual_tags[key] != _res_tags[key]]
-                              if missing_tags:
-                                  print(f"WARNING: Some tags were not applied successfully: {missing_tags}")
-                              else:
-                                  print(f"Verification successful - All tags applied correctly")
-                          except Exception as verify_error:
-                              print(f"Warning: Failed to verify tags for {log_group_name}: {verify_error}")
-                      else:
-                          # Use Resource Groups Tagging API for other resources
-                          tagging_client = boto3.client('resourcegroupstaggingapi')
-                          tagging_client.tag_resources(
-                              ResourceARNList=[arn],
-                              Tags=_res_tags
-                          )
-                          print(f"Successfully tagged: {arn}")
-
-                          # Verify tags were applied
-                          try:
-                              response = tagging_client.get_resources(
-                                  ResourceARNList=[arn]
-                              )
-                              if response['ResourceTagMappingList']:
-                                  actual_tags = {tag['Key']: tag['Value'] for tag in response['ResourceTagMappingList'][0].get('Tags', [])}
-                                  print(f"Verification - Current tags on {arn}: {actual_tags}")
-
-                                  # Check if all expected tags are present
-                                  missing_tags = [key for key in _res_tags if key not in actual_tags or actual_tags[key] != _res_tags[key]]
-                                  if missing_tags:
-                                      print(f"WARNING: Some tags were not applied successfully: {missing_tags}")
-                                  else:
-                                      print(f"Verification successful - All tags applied correctly")
-                              else:
-                                  print(f"Warning: Resource {arn} not found during verification")
-                          except Exception as verify_error:
-                              print(f"Warning: Failed to verify tags for {arn}: {verify_error}")
+                          # STEP 6: Throw exception if retry also failed
+                          if not success_retry:
+                              error_msg = f"CRITICAL: Tag verification failed for {arn} even after retry!"
+                              if missing_new_tags_retry:
+                                  error_msg += f"\n  Missing new tags: {missing_new_tags_retry}"
+                              if lost_existing_tags_retry:
+                                  error_msg += f"\n  Lost existing tags: {lost_existing_tags_retry}"
+                              print(f"{error_msg}")
+                              raise Exception(error_msg)
+                          else:
+                              print(f"Retry succeeded for {arn}")
 
                   except Exception as e:
                       print(f"Error tagging resource {arn}: {e}")
+                      import traceback
+                      traceback.print_exc()
+                      # Re-raise the exception to fail the Lambda execution
+                      raise
               
               return {
                   'statusCode': 200,
